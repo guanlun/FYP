@@ -19,7 +19,7 @@ public:
     RayTracer(QObject* parent = 0) : QObject(parent) { };
     RayTracer(RenderManager* m, int tid);
 
-	Vec3 traceRay(RenderNode* n);
+    Vec3 traceRay(RenderNode* n);
     inline void setTask(RenderNode* t) { task = t; };
 public slots:
 	void run();

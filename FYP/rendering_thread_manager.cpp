@@ -74,13 +74,15 @@ void RenderManager::clearTasks() {
 }
 
 void RenderManager::render() {
-    //current_utc_time(&start);
+    startTime = clock();
     
     rendering = true;
     numOfRenderedNodes = 0;
     completedTracerCount = 0;
     
     while (!tasks.empty()) {
+        RenderNode* t = tasks.front();
+        delete t;
         tasks.pop();
     }
     
@@ -156,14 +158,8 @@ void RenderManager::tracerCompleted() {
     if (++completedTracerCount == numOfThreads) {
         // rendering = false;
         draw();
+        cout << "time elapsed: " << float(clock() - startTime) / CLOCKS_PER_SEC << endl;
     }
-        
-    // current_utc_time(&end);
-    /*
-     printf("s:  %lu\n", end.tv_sec - start.tv_sec);
-     printf("ns: %lu\n", end.tv_sec - start.tv_nsec);
-     */
-    // cout << "time elapsed: " << float(clock() - startTime) / CLOCKS_PER_SEC << endl;
 }
 
 void RenderManager::draw() {

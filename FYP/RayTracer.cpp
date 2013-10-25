@@ -173,16 +173,18 @@ void RayTracer::AA()
 Vec3 RayTracer::traceRay(RenderNode* n)
 {
 	// max depth
-	if (n->depth >= manager->maxDepth || n->p < manager->threshold)
-	{
+	if (!n->ignoreThreshold && (n->depth > manager->maxDepth || n->p < manager->threshold)) {
+        delete n;
 		return Vec3(0.f);
 	}
+    
     Scene* scene = manager->getScene();
 
 	Intersection* intc = scene->intersect(n->ray);
 	// no hit
 	if (intc == NULL) {
-		return Vec3(0.25f);
+        delete n;
+		return Vec3(0.25f); // scene ambient
     }
 
 	Vec3 point = n->ray->at(intc->t);
@@ -195,7 +197,7 @@ Vec3 RayTracer::traceRay(RenderNode* n)
 	if (mat->isTransmissive)
 	{
         AE += scene->ambient * mat->ka * (1.0f - mat->ior);
-    } 
+    }
 	else 
 	{
         AE += scene->ambient * mat->ka;
@@ -215,18 +217,18 @@ Vec3 RayTracer::traceRay(RenderNode* n)
                 || intc->texCoord.y >= 1 || intc->texCoord.y <= 0) {
                 normal = intc->normal;
             } else {
-            int x = mat->displacementMap->width() * intc->texCoord.x;
-            int y = mat->displacementMap->height() * intc->texCoord.y;
-            
-            QColor normalColor = mat->displacementMap->pixel(x, y);
-            Vec3 perturb = Vec3(normalColor.red() / 255.0 - 0.5, normalColor.green() / 255.0 - 0.5,
-                normalColor.blue() / 255.0 - 0.5);
-
-            // printf("%.3f\t\t%.3f\t\t%.3f\n%.3f\t\t%.3f\t\t%.3f\n%.3f\t\t%.3f\t\t%.3f\t\t\n\n", intc->normal.x, intc->normal.y, intc->normal.z, intc->tangent.x, intc->tangent.y, intc->tangent.z, intc->bitangent.x, intc->bitangent.y, intc->bitangent.z);
-            // printf("%.3f\t\t%.3f\t\t%.3f\n", perturb.x, perturb.y, perturb.z);
-            
-            normal = intc->normal * perturb.z + intc->tangent * perturb.x + intc->tangent * perturb.y;
-            normal.normalize();
+                int x = mat->displacementMap->width() * intc->texCoord.x;
+                int y = mat->displacementMap->height() * intc->texCoord.y;
+                
+                QColor normalColor = mat->displacementMap->pixel(x, y);
+                Vec3 perturb = Vec3(normalColor.red() / 255.0 - 0.5, normalColor.green() / 255.0 - 0.5,
+                                    normalColor.blue() / 255.0 - 0.5);
+                
+                // printf("%.3f\t\t%.3f\t\t%.3f\n%.3f\t\t%.3f\t\t%.3f\n%.3f\t\t%.3f\t\t%.3f\t\t\n\n", intc->normal.x, intc->normal.y, intc->normal.z, intc->tangent.x, intc->tangent.y, intc->tangent.z, intc->bitangent.x, intc->bitangent.y, intc->bitangent.z);
+                // printf("%.3f\t\t%.3f\t\t%.3f\n", perturb.x, perturb.y, perturb.z);
+                
+                normal = intc->normal * perturb.z + intc->tangent * perturb.x + intc->tangent * perturb.y;
+                normal.normalize();
             }
         } else {
             normal = intc->normal;
@@ -283,73 +285,83 @@ Vec3 RayTracer::traceRay(RenderNode* n)
 
     I *= 1 - (mat->reflectFactor + (1 - mat->alpha)) * n->p;
      
-    // reflection
     const float NL = -dot(intc->normal, n->ray->dir);
-    float reflGloss = 1 - mat->reflectGloss;
-	
-    if (abs(mat->reflectFactor > EPSILON)) { // reflective
-        Vec3 refl = intc->normal * (2 * NL) + n->ray->dir;
+    
+    /* the following code handles reflection and refraction */
+    if (n->depth >= manager->maxDepth || mat->reflectFactor * n->p > manager->threshold) {
+        float reflGloss = 1 - mat->reflectGloss;
         
-        if (abs(reflGloss) < EPSILON) { // no glossy reflection
-            Ray* R = new Ray(point, refl);
-            RenderNode* r = new RenderNode(R, n->x, n->y, n->depth + 1, mat->reflectFactor * n->p);
-            manager->addTask(r);
-        } else { // glossy
-            for (int i = 0; i < 10; i++) {
-                Ray* R = new Ray(point, refl.randomize(reflGloss));
-                RenderNode* r = new RenderNode(R, n->x, n->y, n->depth + 1, mat->reflectFactor * n->p * 0.1f);
-                manager->addTask(r);
-            }
-        }
-    }
-
-    //refraction
-    float refrGloss = 1 - mat->refractGloss;
-	if (abs(mat->alpha - 1) > EPSILON) // alpha is not 1, refractive
-	{
-        // Vec3 refraction;
-        float pn;
-        
-        if (NL > 0)
-        {
-            pn = mat->ior_inverse;
-            float LONG_TERM = pn * NL - sqrt(1 - pn * pn * (1 - NL * NL));
-            Vec3 refr = intc->normal * LONG_TERM + n->ray->dir * pn;
-            if (abs(refrGloss) < EPSILON) { // no glossy refraction
-                Ray* T = new Ray(point, refr);
-                RenderNode* t = new RenderNode(T, n->x, n->y, n->depth + 1, (1 - mat->alpha) * n->p);
-                manager->addTask(t);
-            } else { // glossy
-                for (int i = 0; i < 10; i++) {
-                    Ray* T = new Ray(point, refr.randomize(refrGloss));
-                    RenderNode* t = new RenderNode(T, n->x, n->y, n->depth + 1, (1 - mat->alpha) * n->p * 0.1f);
-                    manager->addTask(t);
-                }
-            }
-        }
-        else
-        {
-            pn = mat->ior;
-            if (1 - pn * pn * (1 - NL * NL) < EPSILON)
-            {
-                return I;
-            }
+        if (abs(mat->reflectFactor > EPSILON)) { // reflective
+            Vec3 refl = intc->normal * (2 * NL) + n->ray->dir;
             
-            float LONG_TERM = -(pn * (-NL) - sqrt(1 - pn * pn * (1 - NL * NL)));
-            Vec3 refr = intc->normal * LONG_TERM + n->ray->dir * pn;
-            if (abs(refrGloss) < EPSILON) { // no glossy refraction
-                Ray* T = new Ray(point, refr);
-                RenderNode* t = new RenderNode(T, n->x, n->y, n->depth + 1, (1 - mat->alpha) * n->p);
-                manager->addTask(t);
+            if (abs(reflGloss) < EPSILON) { // no glossy reflection
+                Ray* R = new Ray(point, refl);
+                RenderNode* r = new RenderNode(R, n->x, n->y, n->depth + 1, mat->reflectFactor * n->p);
+                manager->addTask(r);
             } else { // glossy
                 for (int i = 0; i < 10; i++) {
-                    Ray* T = new Ray(point, refr.randomize(refrGloss));
-                    RenderNode* t = new RenderNode(T, n->x, n->y, n->depth + 1, (1 - mat->alpha) * n->p * 0.1f);
+                    Ray* R = new Ray(point, refl.randomize(reflGloss));
+                    RenderNode* r = new RenderNode(R, n->x, n->y,
+                                                   n->depth + 1, mat->reflectFactor * n->p * 0.1f, true);
+                    manager->addTask(r);
+                }
+            }
+        }
+    }
+    
+    if (n->depth >= manager->maxDepth || (1 - mat->alpha) * n->p > manager->threshold) {
+        //refraction
+        float refrGloss = 1 - mat->refractGloss;
+        if (abs(mat->alpha - 1) > EPSILON) // alpha is not 1, refractive
+        {
+            // Vec3 refraction;
+            float pn;
+            
+            if (NL > 0)
+            {
+                pn = mat->ior_inverse;
+                float LONG_TERM = pn * NL - sqrt(1 - pn * pn * (1 - NL * NL));
+                Vec3 refr = intc->normal * LONG_TERM + n->ray->dir * pn;
+                if (abs(refrGloss) < EPSILON) { // no glossy refraction
+                    Ray* T = new Ray(point, refr);
+                    RenderNode* t = new RenderNode(T, n->x, n->y, n->depth + 1, (1 - mat->alpha) * n->p);
                     manager->addTask(t);
+                } else { // glossy
+                    for (int i = 0; i < 10; i++) {
+                        Ray* T = new Ray(point, refr.randomize(refrGloss));
+                        RenderNode* t = new RenderNode(T, n->x, n->y,
+                                                       n->depth + 1, (1 - mat->alpha) * n->p * 0.1f, true);
+                        manager->addTask(t);
+                    }
+                }
+            }
+            else
+            {
+                pn = mat->ior;
+                if (1 - pn * pn * (1 - NL * NL) < EPSILON)
+                {
+                    delete n;
+                    return I;
+                }
+                
+                float LONG_TERM = -(pn * (-NL) - sqrt(1 - pn * pn * (1 - NL * NL)));
+                Vec3 refr = intc->normal * LONG_TERM + n->ray->dir * pn;
+                if (abs(refrGloss) < EPSILON) { // no glossy refraction
+                    Ray* T = new Ray(point, refr);
+                    RenderNode* t = new RenderNode(T, n->x, n->y, n->depth + 1, (1 - mat->alpha) * n->p);
+                    manager->addTask(t);
+                } else { // glossy
+                    for (int i = 0; i < 10; i++) {
+                        Ray* T = new Ray(point, refr.randomize(refrGloss));
+                        RenderNode* t = new RenderNode(T, n->x, n->y,
+                                                       n->depth + 1, (1 - mat->alpha) * n->p * 0.1f, true);
+                        manager->addTask(t);
+                    }
                 }
             }
         }
     }
 
+    delete n;
     return I;
 }

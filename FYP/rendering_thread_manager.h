@@ -21,12 +21,14 @@
 class MainWindow;
 
 struct RenderNode {
-    RenderNode(Ray* r, int x, int y, int d, Vec3 p) : ray(r), x(x), y(y), depth(d), p(p) {};
+    RenderNode(Ray* r, int x, int y, int d, Vec3 p, bool i = false)
+        : ray(r), x(x), y(y), depth(d), p(p), ignoreThreshold(i) {};
 	Ray* ray;
 	int x;
 	int y;
 	int depth;
 	Vec3 p;
+    bool ignoreThreshold; // set to true when scattering
 };
 
 struct PixelData {
@@ -101,7 +103,7 @@ private:
     int completedTracerCount;
     
     /* used for testing speed */
-    // clock_t startTime;
+    clock_t startTime;
     void current_utc_time(struct timespec *ts);
     //struct timespec start, end;
 };
